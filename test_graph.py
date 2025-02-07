@@ -126,3 +126,4 @@ initial_state = {
 
 # Run the workflow
 final_state = workflow.run(initial_state)
+print("Final state:", final_state)
