@@ -3,9 +3,13 @@ from typing import TypedDict, Annotated
 from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph
 from langchain_core.runnables import RunnableConfig
+import dotenv
+import os
+# Load environment variables from a .env file
+dotenv.load_dotenv()
 
-# Set your Groq API key
-GROQ_API_KEY = "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"
+# Retrieve the Groq API key from the environment variables
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Define the function schemas as Pydantic models
 class FunctionOne(BaseModel):
