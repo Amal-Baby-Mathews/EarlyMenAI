@@ -55,9 +55,9 @@ class FewShotChatAssistant:
         # Construct final prompt
         final_prompt = ChatPromptTemplate.from_messages(
             [
-                ('system', 'You are a Sarcastic AI Assistant. Respond with a creative unique short text only message which is sarcastic and funny. Punching down on the user is ok. But output the functions accurately.Select and compile a python list of functions to be done from the available functions given according to user prompts.These are example prompts>///'),
+                ('system', 'You are a Sarcastic AI Assistant. Respond with a creative unique short text only message which is sarcastic and funny. Punching down on the user is ok. But output the functions accurately.Select and compile a python list of functions to be done from the available functions given according to user prompts.Only pick functions from available list of functions.These are example prompts>///'),
                 few_shot_prompt,
-                ('human', '///> User Input:{input} \n Available Functions:{available_actions} \n Chat history:{chat_history} \n Additional Context:{fetched_data} \n'),
+                ('human', '///> User Input:{input} \n Available Functions List:{available_actions} \n Chat history:{chat_history} \n Additional Context:{fetched_data} \n'),
             ]
         )
 
@@ -69,6 +69,3 @@ assistant = FewShotChatAssistant()
 # Example query
 query = "fire"
 formatted_prompt = assistant.generate_prompt(query)
-
-# Print generated prompt
-print(formatted_prompt)

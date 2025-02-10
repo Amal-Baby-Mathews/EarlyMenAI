@@ -22,13 +22,13 @@ llm = ChatGroq(
 )
 
 data_fetch_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a functional bot. Your task is to generate a python list of keywords required to use vector search to fetch data from the database according to User's prompt. Example output: [name, address, phone number].Output only the list nothing else."), 
+    ("system", "You are a functional bot. Your task is to generate a python list of keywords required to use vector search to fetch data from the database according to User's prompt. Example output: [name, address, phone number].Output only the list nothing else. List can contain any keyword relevant to users incoherrent input."), 
     ("user", "{current_input}"),
 ])
 data_fetch_chain= LLMChain(llm=llm, prompt=data_fetch_prompt)
 # Instantiate final output chain
 final_output_chain = FewShotChatAssistant()
-
+from datetime import datetime
 #This is the milvus addition
 import random
 from langchain.memory import ConversationVectorStoreTokenBufferMemory
@@ -36,7 +36,7 @@ from langchain_milvus import Milvus
 from langchain_ollama import OllamaEmbeddings
 
 # Initialize embeddings
-embeddings = OllamaEmbeddings(model="llama3")
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
 # Set up local Milvus vector store
 URI = "http://localhost:19530"
@@ -46,8 +46,8 @@ vector_store = Milvus(
     collection_name="conversation_memory",
     index_params={"index_type": "FLAT", "metric_type": "L2"},
 )
-retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 1})
-
+# vector_store.add_texts(texts=["hello"], metadatas=[{"source": "LLM", "length": 1}], ids=["ok"])
+retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 3})
 # Initialize conversation memory
 conversation_memory = ConversationVectorStoreTokenBufferMemory(
     return_messages=True,
@@ -58,13 +58,22 @@ conversation_memory = ConversationVectorStoreTokenBufferMemory(
 
 
 def extract_keywords(output):
-    # Regular expression to match list of keywords inside square brackets
-    match = re.search(r'\[([\w\s,]+)\]', output)
-    
+    """
+    Extracts keywords from a string that contains a list format.
+    Handles different types of list formats (single quotes, double quotes, or no quotes).
+    """
+    # Try to find content inside square brackets
+    match = re.search(r'\[(.*?)\]', output)
+
     if match:
-        # Extract the contents inside the brackets and split into keywords
-        keywords = [word.strip() for word in match.group(1).split(',')]
-        return keywords
+        content = match.group(1)
+
+        # Find all words inside single or double quotes
+        words = re.findall(r'["\'](.*?)["\']|\b\w+\b', content)
+
+        # Remove any empty strings (caused by mismatches)
+        return [word.strip() for word in words if word.strip()]
+
     return []
 # Define our state type
 class State(TypedDict):
@@ -83,7 +92,7 @@ def store_in_vectordb(conversation_list:list) -> None:
     """Placeholder for storing data in vector DB"""
     Input_message= {"Human":conversation_list[0]}
     output_message= {"AI":conversation_list[1]}
-    conversation_memory.save_context(Input_message,output_message)
+    vector_store.add_texts(texts=[f"{Input_message} {output_message}"], metadatas=[{"source": "conversation", "length": 1}], ids=["+"+str(datetime.now())])
 
     #conversation_memory.save_context(message)
     print(f"Storing in vector DB: {conversation_list}")
@@ -91,7 +100,6 @@ def store_in_vectordb(conversation_list:list) -> None:
 # Node functions
 def process_input(state: State):
     """Initial processing of user input"""
-    print(f"Processing input: {state['current_input']}")
     # Store conversation in vector DB
     return {
         "conversation_history": [state['current_input']]
@@ -101,7 +109,6 @@ def llm_processing(state: State):
     """LLM processes the input and determines next steps"""
     llm_output = data_fetch_chain.invoke(state['current_input'])
     llm_output = extract_keywords(llm_output["text"])
-    print(f"Data keywords output: {llm_output}")
     state["data_fetch_keywords"] = llm_output
     return {
         "data_fetch_keywords": llm_output,
@@ -109,10 +116,10 @@ def llm_processing(state: State):
 
 def fetch_data(state: State):
     """Fetch data from vector DB if needed"""
-    results = vector_store.similarity_search(query=state["data_fetch_keywords"],k=2)
+    results = vector_store.similarity_search(query=str(state["data_fetch_keywords"]),k=2)
     fetch_data= ""
     for doc in results:
-        print(f"* {doc.page_content} [{doc.metadata}]")
+        print(f"Fetched data:* {doc.page_content} [{doc.metadata}]")
         fetch_data+=f"* {doc.page_content} [{doc.metadata}]"
 
     state["fetched_data"] = fetch_data
@@ -124,10 +131,9 @@ def generate_output(state: State):
     """Generate final output based on all collected information"""
     final_output_prompt= final_output_chain.generate_prompt(state['current_input'],state['available_actions'],state['conversation_history'],state['fetched_data'])
     final_output = llm.invoke(final_output_prompt)
-    print(f"Final output: {final_output.content}")
     state["conversation_history"].append(final_output.content)
     state['llm_response'] = final_output.content
-    state["required_actions"] = extract_keywords(final_output.content)
+    state["required_actions"] = extract_keywords(str(final_output.content))
     store_in_vectordb(state['conversation_history'])
     return {
         "llm_response": final_output.content,
@@ -174,7 +180,7 @@ workflow = build_workflow()
 # Initial state
 initial_state = {
     "conversation_history": [],
-    "current_input": "me want fire",
+    "current_input": "superman",
     "data_fetch_keywords": [],
     "llm_response": {},
     "fetched_data": "",
