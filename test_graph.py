@@ -20,6 +20,7 @@ llm = ChatGroq(
     model_name="llama-3.3-70b-versatile",
     api_key=GROQ_API_KEY
 )
+
 data_fetch_prompt = ChatPromptTemplate.from_messages([
     ("system", "You are a functional bot. Your task is to generate a python list of keywords required to use vector search to fetch data from the database according to User's prompt. Example output: [name, address, phone number].Output only the list nothing else."), 
     ("user", "{current_input}"),
@@ -27,6 +28,35 @@ data_fetch_prompt = ChatPromptTemplate.from_messages([
 data_fetch_chain= LLMChain(llm=llm, prompt=data_fetch_prompt)
 # Instantiate final output chain
 final_output_chain = FewShotChatAssistant()
+
+#This is the milvus addition
+import random
+from langchain.memory import ConversationVectorStoreTokenBufferMemory
+from langchain_milvus import Milvus
+from langchain_ollama import OllamaEmbeddings
+
+# Initialize embeddings
+embeddings = OllamaEmbeddings(model="llama3")
+
+# Set up local Milvus vector store
+URI = "http://localhost:19530"
+vector_store = Milvus(
+    embedding_function=embeddings,
+    connection_args={"uri": URI},
+    collection_name="conversation_memory",
+    index_params={"index_type": "FLAT", "metric_type": "L2"},
+)
+retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 1})
+
+# Initialize conversation memory
+conversation_memory = ConversationVectorStoreTokenBufferMemory(
+    return_messages=True,
+    llm=llm,  # Add your LLM instance here if needed
+    retriever=retriever,
+    max_token_limit=1000,
+)
+
+
 def extract_keywords(output):
     # Regular expression to match list of keywords inside square brackets
     match = re.search(r'\[([\w\s,]+)\]', output)
@@ -43,26 +73,26 @@ class State(TypedDict):
     current_input: str
     data_fetch_keywords: list
     llm_response: dict
-    fetched_data: list
+    fetched_data: str
     final_output: str
     required_actions: list
     available_actions: list
 
 # Placeholder functions
-def store_in_vectordb(text: str) -> None:
+def store_in_vectordb(conversation_list:list) -> None:
     """Placeholder for storing data in vector DB"""
-    print(f"Storing in vector DB: {text}")
+    Input_message= {"Human":conversation_list[0]}
+    output_message= {"AI":conversation_list[1]}
+    conversation_memory.save_context(Input_message,output_message)
 
-def fetch_from_vectordb(query: str) -> List[str]:
-    """Placeholder for fetching data from vector DB"""
-    return [f"Fetched data {i}" for i in range(random.randint(1, 3))]
+    #conversation_memory.save_context(message)
+    print(f"Storing in vector DB: {conversation_list}")
 
 # Node functions
 def process_input(state: State):
     """Initial processing of user input"""
     print(f"Processing input: {state['current_input']}")
     # Store conversation in vector DB
-    store_in_vectordb(state['current_input'])
     return {
         "conversation_history": [state['current_input']]
     }
@@ -79,23 +109,28 @@ def llm_processing(state: State):
 
 def fetch_data(state: State):
     """Fetch data from vector DB if needed"""
-    fetched_data = fetch_from_vectordb(state['current_input'])
+    results = vector_store.similarity_search(query=state["data_fetch_keywords"],k=2)
+    fetch_data= ""
+    for doc in results:
+        print(f"* {doc.page_content} [{doc.metadata}]")
+        fetch_data+=f"* {doc.page_content} [{doc.metadata}]"
+
+    state["fetched_data"] = fetch_data
     return {
-        "fetched_data": fetched_data
+        "fetched_data": fetch_data
     }
 
 def generate_output(state: State):
     """Generate final output based on all collected information"""
-    final_output_prompt= final_output_chain.generate_prompt(state['current_input'],state['available_actions'],state['conversation_history'])
+    final_output_prompt= final_output_chain.generate_prompt(state['current_input'],state['available_actions'],state['conversation_history'],state['fetched_data'])
     final_output = llm.invoke(final_output_prompt)
     print(f"Final output: {final_output.content}")
-    store_in_vectordb(final_output.content)
-    state['conversation_history'].append(final_output.content)
+    state["conversation_history"].append(final_output.content)
     state['llm_response'] = final_output.content
-    state["required_actions"] = ['placeholder_action']
+    state["required_actions"] = extract_keywords(final_output.content)
+    store_in_vectordb(state['conversation_history'])
     return {
         "llm_response": final_output.content,
-        "conversation_history": [final_output.content]
     }
 
 # Build the graph
@@ -142,7 +177,7 @@ initial_state = {
     "current_input": "me want fire",
     "data_fetch_keywords": [],
     "llm_response": {},
-    "fetched_data": [],
+    "fetched_data": "",
     "final_output": "",
     "required_actions": [],
     "available_actions": ["create_fire", "pick_apple"]

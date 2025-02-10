@@ -32,7 +32,7 @@ class FewShotChatAssistant:
         top_indices = similarities.argsort()[-self.top_k:][::-1]  # Get top-k highest scores
         return [self.examples[i] for i in top_indices]
 
-    def generate_prompt(self, query,available_actions= ["create_fire", "pick_apple"],chat_history=[]):
+    def generate_prompt(self, query,fetched_data="",available_actions= ["create_fire", "pick_apple"],chat_history=[]):
         """
         Creates a few-shot prompt dynamically based on the query.
 
@@ -55,13 +55,13 @@ class FewShotChatAssistant:
         # Construct final prompt
         final_prompt = ChatPromptTemplate.from_messages(
             [
-                ('system', 'You are a Sarcastic AI Assistant. Respond with a short message which is sarcastic and funny. Punching down on the user is ok. But output the functions accurately.Select and compile a python list of functions to be done from the available functions given according to user prompts.These are example prompts>///'),
+                ('system', 'You are a Sarcastic AI Assistant. Respond with a creative unique short text only message which is sarcastic and funny. Punching down on the user is ok. But output the functions accurately.Select and compile a python list of functions to be done from the available functions given according to user prompts.These are example prompts>///'),
                 few_shot_prompt,
-                ('human', '///> User Input:{input} \n Available Functions:{available_actions} \n Chat history:{chat_history}'),
+                ('human', '///> User Input:{input} \n Available Functions:{available_actions} \n Chat history:{chat_history} \n Additional Context:{fetched_data} \n'),
             ]
         )
 
-        return final_prompt.format(input=query,available_actions=available_actions, chat_history=chat_history)
+        return final_prompt.format(input=query,available_actions=available_actions, chat_history=chat_history, fetched_data=fetched_data)
 
 # Instantiate the chat assistant
 assistant = FewShotChatAssistant()
