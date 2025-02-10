@@ -64,13 +64,13 @@ def extract_keywords(output):
     """
     # Try to find content inside square brackets
     match = re.search(r'\[(.*?)\]', output)
-
+    print(f"Extracting: {output}")
     if match:
         content = match.group(1)
 
         # Find all words inside single or double quotes
         words = re.findall(r'["\'](.*?)["\']|\b\w+\b', content)
-
+        print(f"Extracted words: {words}")
         # Remove any empty strings (caused by mismatches)
         return [word.strip() for word in words if word.strip()]
 
@@ -116,7 +116,7 @@ def llm_processing(state: State):
 
 def fetch_data(state: State):
     """Fetch data from vector DB if needed"""
-    results = vector_store.similarity_search(query=str(state["data_fetch_keywords"]),k=2)
+    results = vector_store.similarity_search(query=str(state["data_fetch_keywords"]),k=1)
     fetch_data= ""
     for doc in results:
         print(f"Fetched data:* {doc.page_content} [{doc.metadata}]")
@@ -191,5 +191,5 @@ initial_state = {
 
 # Run the workflow
 final_state = workflow.invoke(initial_state)
-print("Final state:", final_state)
-print("\nanswer:", final_state["llm_response"])
+
+print("\nAnswer:", final_state["llm_response"])
