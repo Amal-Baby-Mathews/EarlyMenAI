@@ -1,4 +1,4 @@
-from typing import Annotated, Sequence, List, Dict, Any
+from typing import Annotated, Tuple, List, Dict, Any
 from typing_extensions import TypedDict
 from langgraph.graph import StateGraph, START, END
 import operator
@@ -74,14 +74,63 @@ class ChatSystem:
         ])
         self.data_fetch_chain = LLMChain(llm=self.llm, prompt=data_fetch_prompt)
         self.final_output_chain = FewShotChatAssistant()
-
+    def extract_keywords_and_clean(self,output: str) -> Tuple[str, List[str]]:
+        """
+        Extract keywords from the output and remove the list portion from the response.
+        
+        Args:
+            output (str): The full LLM output containing text and a list of keywords.
+            
+        Returns:
+            Tuple[str, List[str]]: A tuple with the cleaned output (without the keyword list)
+                                and the list of extracted keywords.
+                                
+        Example:
+            input: "Oh yes, let's hoard apples... ['pick_apple', 'pick_apple']"
+            returns: ("Oh yes, let's hoard apples...", ['pick_apple', 'pick_apple'])
+        """
+        # Search for a list pattern enclosed in square brackets
+        match = re.search(r'\[(.*?)\]', output)
+        if match:
+            # The entire list (including brackets)
+            list_str = match.group(0)
+            # The inside of the brackets
+            inner_str = match.group(1)
+            
+            # Extract keywords. This assumes keywords are comma-separated and may be quoted.
+            # First try to extract quoted keywords:
+            keywords = re.findall(r"'([^']+)'", list_str)
+            if not keywords:
+                # Fallback: split by commas if quotes weren't used.
+                keywords = [item.strip() for item in inner_str.split(',') if item.strip()]
+            
+            # Remove the list part from the output text
+            cleaned_output = output.replace(list_str, '').strip()
+            return cleaned_output, keywords
+        
+        # If no list is found, return the original output and an empty keyword list.
+        return output.strip(), []
     def extract_keywords(self, output: str) -> List[str]:
-        """Extract keywords from string output"""
+        """
+        Extract keywords from string output and ensure all elements are strings.
+        
+        Args:
+            output (str): Input string containing a list-like structure
+            
+        Returns:
+            List[str]: List of extracted keywords as strings
+            
+        Example:
+            >>> extract_keywords("Some text ['item1', 2, 'item3']")
+            ['item1', '2', 'item3']
+        """
         match = re.search(r'\[(.*?)\]', output)
         if match:
             content = match.group(1)
-            words = re.findall(r'["\'](.*?)["\']|\b\w+\b', content)
-            return [word.strip() for word in words if word.strip()]
+            # Modified regex to capture both quoted and unquoted content
+            words = re.findall(r'["\'](.*?)[\'"]|\b\w+\b', content)
+            # Ensure each element is converted to string and stripped
+            return [str(word).strip() for word in words if str(word).strip()]
         return []
 
     def store_in_vectordb(self, conversation_list: list) -> None:
@@ -129,9 +178,10 @@ class ChatSystem:
             state['fetched_data']
         )
         final_output = self.llm.invoke(final_output_prompt)
+        clean_text, required_actions = self.extract_keywords_and_clean(final_output.content)
         state["conversation_history"].append(final_output.content)
-        state['llm_response'] = final_output.content
-        state["required_actions"] = self.extract_keywords(str(final_output.content))
+        state['llm_response'] = clean_text
+        state["required_actions"] = required_actions
         self.store_in_vectordb(state['conversation_history'])
         return {
             "llm_response": final_output.content,
@@ -182,7 +232,7 @@ class ChatSystem:
         }
 
         final_state = self.workflow.invoke(initial_state)
-        return {"response": final_state["llm_response"]}
+        return {"response": final_state["llm_response"], "required_actions": final_state["required_actions"]}
 
 # FastAPI app
 app = FastAPI()

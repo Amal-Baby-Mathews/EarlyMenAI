@@ -18,7 +18,7 @@ https://milvus.io/docs/install_standalone-docker.md
 # Basic chat request
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello, how are you?", "available_actions": ["create_fire", "pick_apple"]}'
+  -d '{"message": "Me fire?", "available_actions": ["create_fire", "pick_apple"]}'
 
 # Chat request with custom actions
 curl -X POST http://localhost:8000/chat \
