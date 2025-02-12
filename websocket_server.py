@@ -22,7 +22,7 @@ class State(TypedDict):
     conversation_history: Annotated[list, operator.add]
     current_input: str
     data_fetch_keywords: list
-    llm_response: dict
+    llm_response: str
     fetched_data: str
     final_output: str
     required_actions: list
@@ -74,9 +74,10 @@ class ChatSystem:
         ])
         self.data_fetch_chain = LLMChain(llm=self.llm, prompt=data_fetch_prompt)
         self.final_output_chain = FewShotChatAssistant()
-    def extract_keywords_and_clean(self,output: str) -> Tuple[str, List[str]]:
+    def extract_keywords_and_clean(self, output: str) -> Tuple[str, List[str]]:
         """
         Extract keywords from the output and remove the list portion from the response.
+        Handles both quoted and unquoted content with robust pattern matching.
         
         Args:
             output (str): The full LLM output containing text and a list of keywords.
@@ -86,30 +87,26 @@ class ChatSystem:
                                 and the list of extracted keywords.
                                 
         Example:
-            input: "Oh yes, let's hoard apples... ['pick_apple', 'pick_apple']"
-            returns: ("Oh yes, let's hoard apples...", ['pick_apple', 'pick_apple'])
+            input: "Some text ['item1', word2, 'item3']"
+            returns: ("Some text", ['item1', 'word2', 'item3'])
         """
+        # Handle the case where the input is a dict with 'response' key
+        if isinstance(output, dict) and 'response' in output:
+            output = output['response']
+        print(f"Output: {output}")
         # Search for a list pattern enclosed in square brackets
-        match = re.search(r'\[(.*?)\]', output)
+        match = re.search(r"(?<=\[)(.*?)(?=\])", output)
         if match:
+            list_str_match = match.group(0)
             # The entire list (including brackets)
-            list_str = match.group(0)
-            # The inside of the brackets
-            inner_str = match.group(1)
-            
-            # Extract keywords. This assumes keywords are comma-separated and may be quoted.
-            # First try to extract quoted keywords:
-            keywords = re.findall(r"'([^']+)'", list_str)
-            if not keywords:
-                # Fallback: split by commas if quotes weren't used.
-                keywords = [item.strip() for item in inner_str.split(',') if item.strip()]
-            
+            keywords = [item.strip(" '\"") for item in list_str_match.split(",")]
+            print(f"List str: {keywords}")
             # Remove the list part from the output text
-            cleaned_output = output.replace(list_str, '').strip()
+            cleaned_output = output.replace(f"[{list_str_match}]", '').strip()
             return cleaned_output, keywords
         
-        # If no list is found, return the original output and an empty keyword list.
-        return output.strip(), []
+        return output, []
+            
     def extract_keywords(self, output: str) -> List[str]:
         """
         Extract keywords from string output and ensure all elements are strings.
@@ -181,10 +178,11 @@ class ChatSystem:
         clean_text, required_actions = self.extract_keywords_and_clean(final_output.content)
         state["conversation_history"].append(final_output.content)
         state['llm_response'] = clean_text
-        state["required_actions"] = required_actions
+        state['required_actions'] = required_actions
+        print(f"Required actions: {self.extract_keywords(str(final_output.content))}")
         self.store_in_vectordb(state['conversation_history'])
         return {
-            "llm_response": final_output.content,
+            "llm_response": clean_text, 'required_actions': required_actions
         }
 
     def build_workflow(self):
@@ -224,7 +222,7 @@ class ChatSystem:
             "conversation_history": [],
             "current_input": message,
             "data_fetch_keywords": [],
-            "llm_response": {},
+            "llm_response": "",
             "fetched_data": "",
             "final_output": "",
             "required_actions": [],
@@ -247,4 +245,4 @@ async def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("websocket_server:app", host="0.0.0.0", port=8000, reload=True) 
